@@ -1,5 +1,5 @@
 <script>
-	import { LayoutGrid, Table, RotateCcw, RefreshCw, FileSpreadsheet, Search, Settings2, Image as ImageIcon, X } from 'lucide-svelte';
+	import { LayoutGrid, Table, RotateCcw, RefreshCw, Download, FileSpreadsheet, Search, Settings2, Image as ImageIcon, X } from 'lucide-svelte';
 	import CardView from './CardView.svelte';
 	import TableView from './TableView.svelte';
 	import DetailPanel from './DetailPanel.svelte';
@@ -129,6 +129,27 @@
 		}
 	}
 
+	async function handleDownloadValidationJson() {
+		if (!fileName) return;
+		const response = await fetch('/api/question-validations');
+		if (!response.ok) return;
+		const store = await response.json();
+		const fileStore = {
+			files: {
+				[fileName]: store.files?.[fileName] || { questions: {} }
+			}
+		};
+		const blob = new Blob([`${JSON.stringify(fileStore, null, 2)}\n`], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `${fileName.replace(/\.csv$/i, '')}-validations.json`;
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(url);
+	}
+
 	async function handleSetValidation(row, status) {
 		const questionKey = getQuestionKey(row, mapping);
 		const question = getQuestionText(row, mapping);
@@ -207,6 +228,18 @@
 		>
 			<RefreshCw size={13} />
 			Sync
+		</button>
+
+		<button
+			onclick={handleDownloadValidationJson}
+			class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium
+				   cursor-pointer transition-all duration-200 hover:scale-105"
+			style="background: var(--bg-card); color: var(--color-brand-400); border: 1px solid var(--border-color);"
+			title="Download validation JSON"
+			aria-label="Download validation JSON"
+		>
+			<Download size={13} />
+			JSON
 		</button>
 
 		<button
