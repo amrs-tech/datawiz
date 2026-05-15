@@ -5,12 +5,50 @@ const CHOICES_PATTERNS = ['choices', 'options', 'alternatives', 'answers_list', 
 const ANSWER_PATTERNS = ['answer', 'correct', 'correct_answer', 'solution', 'key', 'right_answer'];
 const IMAGE_PATTERNS = ['image_id', 'imageid', 'img_id', 'imgid', 'images', 'image'];
 
+function normalizeHeaderValue(header, index) {
+	const value = header == null ? '' : String(header).trim();
+	return value || `Column ${index + 1}`;
+}
+
+function normalizeHeaders(headers) {
+	const seen = new Map();
+	return headers.map((header, index) => {
+		const base = normalizeHeaderValue(header, index);
+		const count = seen.get(base) || 0;
+		seen.set(base, count + 1);
+		return count === 0 ? base : `${base}_${count + 1}`;
+	});
+}
+
+function normalizeRows(rows, originalHeaders, headers) {
+	return rows.map((row) => {
+		const normalized = {};
+		for (let i = 0; i < headers.length; i += 1) {
+			const original = originalHeaders[i];
+			const originalKey = original == null ? '' : String(original);
+			const trimmedKey = originalKey.trim();
+			const normalizedKey = headers[i];
+			if (Object.prototype.hasOwnProperty.call(row, original)) {
+				normalized[normalizedKey] = row[original];
+			} else if (Object.prototype.hasOwnProperty.call(row, originalKey)) {
+				normalized[normalizedKey] = row[originalKey];
+			} else if (Object.prototype.hasOwnProperty.call(row, trimmedKey)) {
+				normalized[normalizedKey] = row[trimmedKey];
+			} else {
+				normalized[normalizedKey] = '';
+			}
+		}
+		return normalized;
+	});
+}
+
 function fuzzyMatch(header, patterns) {
-	const h = header.toLowerCase().trim().replace(/[_\-\s]+/g, '');
+	const h = String(header ?? '').toLowerCase().trim().replace(/[_\-\s]+/g, '');
 	return patterns.some((p) => h === p.replace(/[_\-\s]+/g, '') || h.includes(p.replace(/[_\-\s]+/g, '')));
 }
 
 export function autoDetectMapping(headers) {
+	headers = normalizeHeaders(Array.isArray(headers) ? headers : []);
 	const mapping = { question: '', choices: [], answer: '', extra: '', imageIds: '' };
 
 	for (const h of headers) {
@@ -38,8 +76,9 @@ export function parseCSV(file, onProgress) {
 			dynamicTyping: false,
 			complete(results) {
 				try {
-					const headers = results.meta.fields || [];
-					const data = results.data || [];
+					const originalHeaders = results.meta.fields || [];
+					const headers = normalizeHeaders(originalHeaders);
+					const data = normalizeRows(results.data || [], originalHeaders, headers);
 
 					if (results.errors.length > 0 && data.length === 0) {
 						reject(new Error(results.errors[0].message));
