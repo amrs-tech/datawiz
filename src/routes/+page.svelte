@@ -38,16 +38,24 @@
 
 	function buildImageMap(files) {
 		const map = {};
-		for (const file of files) {
-			if (!file.type?.startsWith('image/')) continue;
-			const url = URL.createObjectURL(file);
-			const full = file.name;
-			const base = full.includes('.') ? full.slice(0, full.lastIndexOf('.')) : full;
+		const imageExtensions = /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|ico|heic|heif)$/i;
+		function addImageKey(key, url) {
+			if (!key) return;
+			const normalized = String(key).replace(/\\/g, '/');
+			const fileName = normalized.split('/').pop();
+			const base = fileName?.includes('.') ? fileName.slice(0, fileName.lastIndexOf('.')) : fileName;
+			for (const value of [normalized, fileName, base]) {
+				if (!value) continue;
+				map[value] = url;
+				map[value.toLowerCase()] = url;
+			}
+		}
 
-			map[full] = url;
-			map[full.toLowerCase()] = url;
-			map[base] = url;
-			map[base.toLowerCase()] = url;
+		for (const file of files) {
+			if (!file.type?.startsWith('image/') && !imageExtensions.test(file.name)) continue;
+			const url = URL.createObjectURL(file);
+			addImageKey(file.name, url);
+			addImageKey(file.webkitRelativePath, url);
 		}
 		return map;
 	}

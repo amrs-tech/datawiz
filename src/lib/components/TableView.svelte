@@ -29,7 +29,13 @@
 	}
 
 	function resolveImage(id) {
-		return imageMap[id] || imageMap[id?.toLowerCase?.()] || '';
+		const normalized = String(id || '').trim().replace(/\\/g, '/');
+		const fileName = normalized.split('/').pop();
+		const base = fileName?.includes('.') ? fileName.slice(0, fileName.lastIndexOf('.')) : fileName;
+		for (const key of [normalized, normalized.toLowerCase(), fileName, fileName?.toLowerCase(), base, base?.toLowerCase()]) {
+			if (key && imageMap[key]) return imageMap[key];
+		}
+		return '';
 	}
 </script>
 

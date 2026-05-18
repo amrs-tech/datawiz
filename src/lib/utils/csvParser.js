@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 
-const QUESTION_PATTERNS = ['question', 'query', 'prompt', 'item', 'stem', 'q'];
+const QUESTION_PATTERNS = ['question', 'query', 'prompt', 'item', 'stem', 'text', 'caption', 'description', 'q'];
 const CHOICES_PATTERNS = ['choices', 'options', 'alternatives', 'answers_list', 'option', 'choice'];
 const ANSWER_PATTERNS = ['answer', 'correct', 'correct_answer', 'solution', 'key', 'right_answer'];
 const IMAGE_PATTERNS = ['image_id', 'imageid', 'img_id', 'imgid', 'images', 'image'];
@@ -79,7 +79,9 @@ export function parseCSV(file, onProgress) {
 				try {
 					const originalHeaders = results.meta.fields || [];
 					const headers = normalizeHeaders(originalHeaders);
-					const data = normalizeRows(results.data || [], originalHeaders, headers);
+					const headersChanged = headers.some((header, index) => header !== originalHeaders[index]);
+					const rows = (results.data || []).filter((row) => row && typeof row === 'object');
+					const data = headersChanged ? normalizeRows(rows, originalHeaders, headers) : rows;
 
 					if (results.errors.length > 0 && data.length === 0) {
 						reject(new Error(results.errors[0].message));

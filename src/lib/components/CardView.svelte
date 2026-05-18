@@ -22,7 +22,13 @@
 	}
 
 	function resolveImage(id) {
-		return imageMap[id] || imageMap[id?.toLowerCase?.()] || '';
+		const normalized = String(id || '').trim().replace(/\\/g, '/');
+		const fileName = normalized.split('/').pop();
+		const base = fileName?.includes('.') ? fileName.slice(0, fileName.lastIndexOf('.')) : fileName;
+		for (const key of [normalized, normalized.toLowerCase(), fileName, fileName?.toLowerCase(), base, base?.toLowerCase()]) {
+			if (key && imageMap[key]) return imageMap[key];
+		}
+		return '';
 	}
 </script>
 
@@ -66,9 +72,29 @@
 			<div class="flex items-start gap-2 mb-4">
 				<MessageSquare size={14} class="shrink-0 mt-0.5" style="color: var(--color-brand-400);" />
 				<p class="text-sm font-medium leading-relaxed line-clamp-3" style="color: var(--text-primary);">
-					{question}
+					{question || (imageIds.length > 0 ? 'Image question' : '')}
 				</p>
 			</div>
+
+			{#if imageIds.some((id) => resolveImage(id))}
+				<div class="grid grid-cols-2 gap-2 mb-3">
+					{#each imageIds as id}
+						{@const imgUrl = resolveImage(id)}
+						{#if imgUrl}
+							<button
+								onclick={(e) => {
+									e.stopPropagation();
+									onOpenImage?.(id, imgUrl);
+								}}
+								class="overflow-hidden rounded-xl cursor-pointer"
+								style="border: 1px solid var(--border-color); background: var(--bg-card);"
+							>
+								<img src={imgUrl} alt={id} class="w-full h-28 object-contain" loading="lazy" />
+							</button>
+						{/if}
+					{/each}
+				</div>
+			{/if}
 
 			{#if choices.length > 0}
 				<div class="flex flex-wrap gap-1.5 mb-3">

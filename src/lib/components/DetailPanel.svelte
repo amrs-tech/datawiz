@@ -29,7 +29,13 @@
 	}
 
 	function resolveImage(id) {
-		return imageMap[id] || imageMap[id?.toLowerCase?.()] || '';
+		const normalized = String(id || '').trim().replace(/\\/g, '/');
+		const fileName = normalized.split('/').pop();
+		const base = fileName?.includes('.') ? fileName.slice(0, fileName.lastIndexOf('.')) : fileName;
+		for (const key of [normalized, normalized.toLowerCase(), fileName, fileName?.toLowerCase(), base, base?.toLowerCase()]) {
+			if (key && imageMap[key]) return imageMap[key];
+		}
+		return '';
 	}
 
 	let imageIds = $derived(parseImageIds(row));
@@ -130,9 +136,26 @@
 					</span>
 				</div>
 				<p class="text-base leading-relaxed" style="color: var(--text-primary);">
-					{question}
+					{question || (imageIds.length > 0 ? 'Image question' : '')}
 				</p>
 			</div>
+
+			{#if imageIds.some((id) => resolveImage(id))}
+				<div class="grid grid-cols-1 gap-3">
+					{#each imageIds as id}
+						{@const imgUrl = resolveImage(id)}
+						{#if imgUrl}
+							<button
+								onclick={() => onOpenImage?.(id, imgUrl)}
+								class="overflow-hidden rounded-xl cursor-pointer"
+								style="border: 1px solid var(--border-color); background: var(--bg-card);"
+							>
+								<img src={imgUrl} alt={id} class="w-full max-h-80 object-contain" loading="lazy" />
+							</button>
+						{/if}
+					{/each}
+				</div>
+			{/if}
 
 			{#if choices.length > 0}
 				<div>

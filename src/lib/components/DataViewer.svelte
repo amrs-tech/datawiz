@@ -15,6 +15,7 @@
 	let rowsPerPage = $state(100);
 	let currentPage = $state(1);
 	let validationState = $state({});
+	let defaultPersistToken = 0;
 	const pageSizeOptions = [50, 100, 250, 500];
 
 	let safeData = $derived(Array.isArray(data) ? data.filter((row) => row && typeof row === 'object') : []);
@@ -114,9 +115,36 @@
 	}
 
 	function applyDefaultValidationState(savedQuestions) {
-		const { next, missing } = buildDefaultValidationState(savedQuestions);
-		validationState = next;
-		if (missing.length > 0) persistDefaultValidations(missing);
+		const saved = savedQuestions && typeof savedQuestions === 'object' ? savedQuestions : {};
+		validationState = saved;
+		defaultPersistToken += 1;
+		persistMissingDefaultValidations(saved, defaultPersistToken);
+	}
+
+	async function persistMissingDefaultValidations(savedQuestions, token) {
+		const now = new Date().toISOString();
+		for (let i = 0; i < safeData.length; i += 500) {
+			if (token !== defaultPersistToken) return;
+			const updates = {};
+			const validations = [];
+			for (const row of safeData.slice(i, i + 500)) {
+				const questionKey = getQuestionKey(row, safeMapping);
+				if (savedQuestions[questionKey] || validationState[questionKey]) continue;
+				const question = getQuestionText(row, safeMapping);
+				const item = {
+					question: question || questionKey,
+					status: 'valid',
+					updatedAt: now
+				};
+				updates[questionKey] = item;
+				validations.push({ questionKey, ...item });
+			}
+			if (validations.length > 0) {
+				validationState = { ...validationState, ...updates };
+				await persistDefaultValidations(validations);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
 	}
 
 	async function persistDefaultValidations(validations) {
@@ -128,8 +156,6 @@
 				body: JSON.stringify({ fileName, validations })
 			});
 			if (!response.ok) return;
-			const fileStore = await response.json();
-			validationState = fileStore.questions || validationState;
 		} catch {
 		}
 	}
@@ -302,7 +328,7 @@
 			</div>
 		{:else if viewMode === 'card'}
 			<CardView
-				data={filteredData}
+				data={pagedData}
 				mapping={safeMapping}
 				{imageMap}
 				{validationState}
@@ -311,7 +337,7 @@
 				onSetValidation={handleSetValidation}
 			/>
 		{:else}
-			<TableView data={filteredData} headers={safeHeaders} mapping={safeMapping} onOpenImage={handleOpenImage} onSelectRow={handleSelectRow} />
+			<TableView data={pagedData} headers={safeHeaders} mapping={safeMapping} onOpenImage={handleOpenImage} onSelectRow={handleSelectRow} />
 		{/if}
 	</div>
 

@@ -106,6 +106,34 @@ async function upsertDbValidation(client, fileName, item) {
 	};
 }
 
+async function upsertDbValidations(client, fileName, validations) {
+	if (validations.length === 0) return;
+	const values = [];
+	const placeholders = validations.map((item, index) => {
+		const offset = index * 5;
+		values.push(
+			fileName,
+			item.questionKey,
+			item.question || item.questionKey,
+			item.status,
+			item.updatedAt || new Date().toISOString()
+		);
+		return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
+	});
+	await client.query(
+		`
+			INSERT INTO question_validations (file_name, question_key, question, status, updated_at)
+			VALUES ${placeholders.join(', ')}
+			ON CONFLICT (file_name, question_key)
+			DO UPDATE SET
+				question = EXCLUDED.question,
+				status = EXCLUDED.status,
+				updated_at = EXCLUDED.updated_at
+		`,
+		values
+	);
+}
+
 async function readStore() {
 	try {
 		const content = await readFile(storagePath, 'utf8');
@@ -161,7 +189,9 @@ export async function POST({ request }) {
 						await client.query('ROLLBACK');
 						return json({ error: 'Invalid validation payload' }, { status: 400 });
 					}
-					await upsertDbValidation(client, fileName, item);
+				}
+				for (let i = 0; i < validations.length; i += 500) {
+					await upsertDbValidations(client, fileName, validations.slice(i, i + 500));
 				}
 				await client.query('COMMIT');
 				return json(await readDbFileStore(fileName));
