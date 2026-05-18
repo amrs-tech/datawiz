@@ -17,13 +17,17 @@
 	let validationState = $state({});
 	const pageSizeOptions = [50, 100, 250, 500];
 
+	let safeData = $derived(Array.isArray(data) ? data.filter((row) => row && typeof row === 'object') : []);
+	let safeHeaders = $derived(Array.isArray(headers) ? headers : []);
+	let safeMapping = $derived(mapping || { question: '', choices: [], answer: '', extra: '', imageIds: '' });
+
 	let filteredData = $derived(
 		searchQuery.trim()
-			? data.filter((row) => {
+			? safeData.filter((row) => {
 					const q = searchQuery.toLowerCase();
 					return Object.values(row).some((v) => String(v).toLowerCase().includes(q));
 				})
-			: data
+			: safeData
 	);
 
 	let totalPages = $derived(Math.max(1, Math.ceil(filteredData.length / rowsPerPage)));
@@ -41,8 +45,8 @@
 	});
 
 	$effect(() => {
-		data;
-		mapping;
+		safeData;
+		safeMapping;
 		fileName;
 		loadValidationState();
 	});
@@ -50,7 +54,7 @@
 	function handleSelectRow(i) {
 		const globalFilteredIndex = pageStart + i;
 		const actualIndex = searchQuery.trim()
-			? data.indexOf(filteredData[globalFilteredIndex])
+			? safeData.indexOf(filteredData[globalFilteredIndex])
 			: globalFilteredIndex;
 		selectedIndex = actualIndex;
 	}
@@ -60,7 +64,7 @@
 	}
 
 	function handleNavigate(i) {
-		if (i >= 0 && i < data.length) {
+		if (i >= 0 && i < safeData.length) {
 			selectedIndex = i;
 		}
 	}
@@ -93,17 +97,18 @@
 		const now = new Date().toISOString();
 		const next = { ...savedQuestions };
 		const missing = [];
-		for (const row of data) {
-			const questionKey = getQuestionKey(row, mapping);
-			if (next[questionKey]) continue;
-			const question = getQuestionText(row, mapping);
-			const item = {
-				question: question || questionKey,
-				status: 'valid',
-				updatedAt: now
-			};
-			next[questionKey] = item;
-			missing.push({ questionKey, ...item });
+		for (const row of safeData || []) {
+			const questionKey = getQuestionKey(row, safeMapping);
+			if (!next[questionKey]) {
+				const question = getQuestionText(row, safeMapping);
+				const item = {
+					question: question || questionKey,
+					status: 'valid',
+					updatedAt: now
+				};
+				next[questionKey] = item;
+				missing.push({ questionKey, ...item });
+			}
 		}
 		return { next, missing };
 	}
@@ -151,8 +156,8 @@
 	}
 
 	async function handleSetValidation(row, status) {
-		const questionKey = getQuestionKey(row, mapping);
-		const question = getQuestionText(row, mapping);
+		const questionKey = getQuestionKey(row, safeMapping);
+		const question = getQuestionText(row, safeMapping);
 		const previous = validationState;
 		validationState = {
 			...validationState,
@@ -195,7 +200,7 @@
 			</span>
 			<span class="text-xs px-2 py-0.5 rounded-full font-mono"
 				  style="background: var(--gradient-subtle); color: var(--text-muted); border: 1px solid var(--border-color);">
-				{data.length} rows
+				{safeData.length} rows
 			</span>
 			{#if imageFolderName}
 				<span class="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1"
@@ -297,8 +302,8 @@
 			</div>
 		{:else if viewMode === 'card'}
 			<CardView
-				data={pagedData}
-				{mapping}
+				data={filteredData}
+				mapping={safeMapping}
 				{imageMap}
 				{validationState}
 				onOpenImage={handleOpenImage}
@@ -306,7 +311,7 @@
 				onSetValidation={handleSetValidation}
 			/>
 		{:else}
-			<TableView data={pagedData} {mapping} {imageMap} onOpenImage={handleOpenImage} onSelectRow={handleSelectRow} />
+			<TableView data={filteredData} headers={safeHeaders} mapping={safeMapping} onOpenImage={handleOpenImage} onSelectRow={handleSelectRow} />
 		{/if}
 	</div>
 
@@ -354,10 +359,10 @@
 		</div>
 	{/if}
 
-	{#if selectedIndex >= 0 && selectedIndex < data.length}
+	{#if selectedIndex >= 0 && selectedIndex < safeData.length}
 		<DetailPanel
-			{data}
-			{mapping}
+			data={safeData}
+			mapping={safeMapping}
 			{imageMap}
 			{selectedIndex}
 			onOpenImage={handleOpenImage}
@@ -397,8 +402,8 @@
 
 	{#if showMapper}
 		<ColumnMapper
-			{headers}
-			{mapping}
+			headers={safeHeaders}
+			mapping={safeMapping}
 			{onMappingChange}
 			onClose={() => { showMapper = false; }}
 		/>

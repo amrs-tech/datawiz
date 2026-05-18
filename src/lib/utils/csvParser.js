@@ -22,18 +22,19 @@ function normalizeHeaders(headers) {
 
 function normalizeRows(rows, originalHeaders, headers) {
 	return rows.map((row) => {
+		const source = row && typeof row === 'object' ? row : {};
 		const normalized = {};
 		for (let i = 0; i < headers.length; i += 1) {
 			const original = originalHeaders[i];
 			const originalKey = original == null ? '' : String(original);
 			const trimmedKey = originalKey.trim();
 			const normalizedKey = headers[i];
-			if (Object.prototype.hasOwnProperty.call(row, original)) {
-				normalized[normalizedKey] = row[original];
-			} else if (Object.prototype.hasOwnProperty.call(row, originalKey)) {
-				normalized[normalizedKey] = row[originalKey];
-			} else if (Object.prototype.hasOwnProperty.call(row, trimmedKey)) {
-				normalized[normalizedKey] = row[trimmedKey];
+			if (Object.prototype.hasOwnProperty.call(source, original)) {
+				normalized[normalizedKey] = source[original];
+			} else if (Object.prototype.hasOwnProperty.call(source, originalKey)) {
+				normalized[normalizedKey] = source[originalKey];
+			} else if (Object.prototype.hasOwnProperty.call(source, trimmedKey)) {
+				normalized[normalizedKey] = source[trimmedKey];
 			} else {
 				normalized[normalizedKey] = '';
 			}
