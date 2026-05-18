@@ -66,36 +66,58 @@ export function autoDetectMapping(headers) {
 	return mapping;
 }
 
+function processResults(results) {
+	const originalHeaders = results.meta.fields || [];
+	const headers = normalizeHeaders(originalHeaders);
+	const headersChanged = headers.some((header, index) => header !== originalHeaders[index]);
+	const rows = (results.data || []).filter((row) => row && typeof row === 'object');
+	const data = headersChanged ? normalizeRows(rows, originalHeaders, headers) : rows;
+
+	if (results.errors.length > 0 && data.length === 0) {
+		throw new Error(results.errors[0].message);
+	}
+
+	const mapping = autoDetectMapping(headers);
+	return { headers, data, mapping };
+}
+
+function parseCSVText(text) {
+	const results = Papa.parse(text, {
+		header: true,
+		skipEmptyLines: true,
+		dynamicTyping: false
+	});
+	return processResults(results);
+}
+
 export function parseCSV(file, onProgress) {
 	return new Promise((resolve, reject) => {
 		onProgress?.({ percent: 0, rows: 0 });
+		let settled = false;
 
 		Papa.parse(file, {
 			worker: true,
 			header: true,
 			skipEmptyLines: true,
 			dynamicTyping: false,
-			complete(results) {
+			async complete(results) {
 				try {
-					const originalHeaders = results.meta.fields || [];
-					const headers = normalizeHeaders(originalHeaders);
-					const headersChanged = headers.some((header, index) => header !== originalHeaders[index]);
-					const rows = (results.data || []).filter((row) => row && typeof row === 'object');
-					const data = headersChanged ? normalizeRows(rows, originalHeaders, headers) : rows;
-
-					if (results.errors.length > 0 && data.length === 0) {
-						reject(new Error(results.errors[0].message));
-						return;
+					let parsed = processResults(results);
+					if (parsed.data.length === 0 && file?.text) {
+						parsed = parseCSVText(await file.text());
 					}
-
+					settled = true;
+					const { headers, data, mapping } = parsed;
 					onProgress?.({ percent: 100, rows: data.length });
-					const mapping = autoDetectMapping(headers);
 					resolve({ headers, data, mapping });
 				} catch (err) {
+					settled = true;
 					reject(err instanceof Error ? err : new Error('Failed to process parsed CSV'));
 				}
 			},
 			error(err) {
+				if (settled) return;
+				settled = true;
 				reject(err);
 			}
 		});
