@@ -4,6 +4,20 @@ const QUESTION_PATTERNS = ['question', 'query', 'prompt', 'item', 'stem', 'text'
 const CHOICES_PATTERNS = ['choices', 'options', 'alternatives', 'answers_list', 'option', 'choice'];
 const ANSWER_PATTERNS = ['answer', 'correct', 'correct_answer', 'solution', 'key', 'right_answer'];
 const IMAGE_PATTERNS = ['image_id', 'imageid', 'img_id', 'imgid', 'images', 'image'];
+const CHOICE_METADATA_PATTERNS = [
+	'plausibility',
+	'score',
+	'scores',
+	'reason',
+	'reasons',
+	'rationale',
+	'explanation',
+	'explanations',
+	'analysis',
+	'feedback',
+	'metadata',
+	'json'
+];
 
 function normalizeHeaderValue(header, index) {
 	const value = header == null ? '' : String(header).trim();
@@ -48,13 +62,22 @@ function fuzzyMatch(header, patterns) {
 	return patterns.some((p) => h === p.replace(/[_\-\s]+/g, '') || h.includes(p.replace(/[_\-\s]+/g, '')));
 }
 
+function isChoiceColumn(header) {
+	const normalized = String(header ?? '').toLowerCase().trim();
+	const compact = normalized.replace(/[_\-\s]+/g, '');
+	if (CHOICE_METADATA_PATTERNS.some((p) => compact.includes(p))) return false;
+	if (/^(choice|option|answer)[_\-\s]*[a-z0-9]$/i.test(normalized)) return true;
+	if (/^[a-e]$/i.test(normalized)) return true;
+	return fuzzyMatch(header, CHOICES_PATTERNS);
+}
+
 export function autoDetectMapping(headers) {
 	headers = normalizeHeaders(Array.isArray(headers) ? headers : []);
 	const mapping = { question: '', choices: [], answer: '', extra: '', imageIds: '' };
 
 	for (const h of headers) {
 		if (!mapping.question && fuzzyMatch(h, QUESTION_PATTERNS)) mapping.question = h;
-		else if (fuzzyMatch(h, CHOICES_PATTERNS)) mapping.choices.push(h);
+		else if (isChoiceColumn(h)) mapping.choices.push(h);
 		else if (!mapping.answer && fuzzyMatch(h, ANSWER_PATTERNS)) mapping.answer = h;
 		else if (!mapping.imageIds && fuzzyMatch(h, IMAGE_PATTERNS)) mapping.imageIds = h;
 	}

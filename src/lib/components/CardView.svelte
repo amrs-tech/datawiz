@@ -1,15 +1,9 @@
 <script>
 	import { Hash, MessageSquare, ListChecks, CheckCircle, Tag, Image as ImageIcon, XCircle } from 'lucide-svelte';
-	import { gatherChoices, getQuestionKey } from '$lib/utils/questionUtils.js';
+	import { gatherChoices, getQuestionKey, isCorrectChoice } from '$lib/utils/questionUtils.js';
+	import LatexText from './LatexText.svelte';
 
 	let { data, mapping, imageMap = {}, validationState = {}, onOpenImage, onSelectRow, onSetValidation } = $props();
-
-	function isCorrectChoice(choice, answer) {
-		if (!answer) return false;
-		const c = String(choice).toLowerCase().trim();
-		const a = String(answer).toLowerCase().trim();
-		return c === a || a.includes(c) || c.includes(a);
-	}
 
 	function parseImageIds(row) {
 		if (!mapping.imageIds) return [];
@@ -30,6 +24,12 @@
 		}
 		return '';
 	}
+
+	function formatInvalidReason(reason) {
+		if (!reason) return '';
+		if (typeof reason === 'string') return reason;
+		return reason.category === 'Other' && reason.detail ? `Other: ${reason.detail}` : reason.category || '';
+	}
 </script>
 
 <div class="grid gap-4 p-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 overflow-y-auto" style="max-height: calc(100vh - 200px);">
@@ -41,6 +41,7 @@
 		{@const imageIds = parseImageIds(row)}
 		{@const questionKey = getQuestionKey(row, mapping)}
 		{@const validation = validationState[questionKey]?.status || ''}
+		{@const invalidReason = formatInvalidReason(validationState[questionKey]?.invalidReason)}
 
 		<div
 			onclick={() => onSelectRow(i)}
@@ -61,19 +62,21 @@
 					{i + 1}
 				</span>
 				{#if extra}
-					<span class="flex items-center gap-1 text-xs px-2 py-1 rounded-full"
+					<div class="flex items-center gap-1 text-xs px-2 py-1 rounded-full max-w-full"
 						  style="background: var(--gradient-subtle); color: var(--color-brand-400); border: 1px solid var(--border-color);">
 						<Tag size={10} />
-						{extra}
-					</span>
+						<LatexText value={extra} class="leading-relaxed" />
+					</div>
 				{/if}
 			</div>
 
 			<div class="flex items-start gap-2 mb-4">
 				<MessageSquare size={14} class="shrink-0 mt-0.5" style="color: var(--color-brand-400);" />
-				<p class="text-sm font-medium leading-relaxed line-clamp-3" style="color: var(--text-primary);">
-					{question || (imageIds.length > 0 ? 'Image question' : '')}
-				</p>
+				<LatexText
+					value={question || (imageIds.length > 0 ? 'Image question' : '')}
+					class="text-sm font-medium leading-relaxed line-clamp-3"
+					inline={false}
+				/>
 			</div>
 
 			{#if imageIds.some((id) => resolveImage(id))}
@@ -98,18 +101,18 @@
 
 			{#if choices.length > 0}
 				<div class="flex flex-wrap gap-1.5 mb-3">
-					{#each choices as choice}
+					{#each choices as choice, choiceIndex}
 						<span
 							class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium
 								   transition-colors duration-200"
-							style="{isCorrectChoice(choice, answer)
+							style="{isCorrectChoice(choice, answer, choiceIndex, choices)
 								? 'background: rgba(16, 185, 129, 0.15); color: var(--color-accent-500); border: 1px solid rgba(16, 185, 129, 0.3);'
 								: 'background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border-color);'}"
 						>
-							{#if isCorrectChoice(choice, answer)}
+							{#if isCorrectChoice(choice, answer, choiceIndex, choices)}
 								<CheckCircle size={10} />
 							{/if}
-							{choice}
+							<LatexText value={choice} />
 						</span>
 					{/each}
 				</div>
@@ -139,7 +142,7 @@
 			<div class="flex items-center gap-1.5 pt-3" style="border-top: 1px solid var(--border-color);">
 				<ListChecks size={12} style="color: var(--color-accent-500);" />
 				<span class="text-xs font-semibold" style="color: var(--color-accent-500);">
-					{answer}
+					<LatexText value={answer} />
 				</span>
 			</div>
 
@@ -171,6 +174,13 @@
 					Invalid
 				</button>
 			</div>
+
+			{#if validation === 'invalid' && invalidReason}
+				<div class="mt-2 px-3 py-2 rounded-xl text-xs"
+					style="background: rgba(239, 68, 68, 0.08); color: rgb(248, 113, 113); border: 1px solid rgba(239, 68, 68, 0.22);">
+					Reason: {invalidReason}
+				</div>
+			{/if}
 		</div>
 	{/each}
 </div>

@@ -1,6 +1,7 @@
 <script>
 	import { X, Hash, MessageSquare, ListChecks, CheckCircle, Tag, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-svelte';
-	import { gatherChoices } from '$lib/utils/questionUtils.js';
+	import { gatherChoices, isCorrectChoice } from '$lib/utils/questionUtils.js';
+	import LatexText from './LatexText.svelte';
 
 	let { data, mapping, imageMap = {}, selectedIndex, onOpenImage, onClose, onNavigate } = $props();
 
@@ -8,13 +9,6 @@
 	let question = $derived(row[mapping.question] || '');
 	let answer = $derived(row[mapping.answer] || '');
 	let extra = $derived(mapping.extra ? row[mapping.extra] : '');
-
-	function isCorrectChoice(choice, ans) {
-		if (!ans) return false;
-		const c = String(choice).toLowerCase().trim();
-		const a = String(ans).toLowerCase().trim();
-		return c === a || a.includes(c) || c.includes(a);
-	}
 
 	let choices = $derived(gatherChoices(row, mapping));
 
@@ -97,9 +91,12 @@
 					<p class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">
 						{mapping.extra}
 					</p>
-					<p class="text-sm font-medium" style="color: var(--color-brand-400);">
-						{extra}
-					</p>
+					<LatexText
+						value={extra}
+						class="text-sm font-medium"
+						style="color: var(--color-brand-400);"
+						inline={false}
+					/>
 				</div>
 			{/if}
 
@@ -135,9 +132,11 @@
 						Question
 					</span>
 				</div>
-				<p class="text-base leading-relaxed" style="color: var(--text-primary);">
-					{question || (imageIds.length > 0 ? 'Image question' : '')}
-				</p>
+				<LatexText
+					value={question || (imageIds.length > 0 ? 'Image question' : '')}
+					class="text-base leading-relaxed"
+					inline={false}
+				/>
 			</div>
 
 			{#if imageIds.some((id) => resolveImage(id))}
@@ -167,7 +166,7 @@
 					</div>
 					<div class="space-y-2">
 						{#each choices as choice, ci}
-							{@const correct = isCorrectChoice(choice, answer)}
+							{@const correct = isCorrectChoice(choice, answer, ci, choices)}
 							<div class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200"
 								 style="{correct
 									? 'background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);'
@@ -182,9 +181,11 @@
 										{String.fromCharCode(65 + ci)}
 									{/if}
 								</span>
-								<span class="text-sm" style="color: {correct ? 'var(--color-accent-500)' : 'var(--text-primary)'}; font-weight: {correct ? '600' : '400'};">
-									{choice}
-								</span>
+								<LatexText
+									value={choice}
+									class="text-sm"
+									style="color: {correct ? 'var(--color-accent-500)' : 'var(--text-primary)'}; font-weight: {correct ? '600' : '400'};"
+								/>
 							</div>
 						{/each}
 					</div>
@@ -198,9 +199,12 @@
 						Correct Answer
 					</span>
 				</div>
-				<p class="text-base font-semibold" style="color: var(--color-accent-500);">
-					{answer}
-				</p>
+				<LatexText
+					value={answer}
+					class="text-base font-semibold"
+					style="color: var(--color-accent-500);"
+					inline={false}
+				/>
 			</div>
 		</div>
 

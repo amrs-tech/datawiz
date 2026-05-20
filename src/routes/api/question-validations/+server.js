@@ -30,16 +30,20 @@ function getPool() {
 
 async function ensureSchema() {
 	if (!schemaReady) {
-		schemaReady = getPool().query(`
-			CREATE TABLE IF NOT EXISTS question_validations (
-				file_name text NOT NULL,
-				question_key text NOT NULL,
-				question text NOT NULL,
-				status text NOT NULL CHECK (status IN ('valid', 'invalid')),
-				updated_at timestamptz NOT NULL DEFAULT now(),
-				PRIMARY KEY (file_name, question_key)
-			)
-		`);
+		schemaReady = (async () => {
+			await getPool().query(`
+				CREATE TABLE IF NOT EXISTS question_validations (
+					file_name text NOT NULL,
+					question_key text NOT NULL,
+					question text NOT NULL,
+					status text NOT NULL CHECK (status IN ('valid', 'invalid')),
+					updated_at timestamptz NOT NULL DEFAULT now(),
+					PRIMARY KEY (file_name, question_key)
+				)
+			`);
+			await getPool().query('ALTER TABLE question_validations ADD COLUMN IF NOT EXISTS invalid_reason_category text');
+			await getPool().query('ALTER TABLE question_validations ADD COLUMN IF NOT EXISTS invalid_reason_detail text');
+		})();
 	}
 	await schemaReady;
 }
@@ -48,15 +52,37 @@ function toIso(value) {
 	return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+function normalizeInvalidReason(status, reason) {
+	if (status !== 'invalid') return null;
+	if (!reason || typeof reason !== 'object') return null;
+	const category = ['Equation', 'Image', 'Other'].includes(reason.category) ? reason.category : '';
+	const detail = category === 'Other' ? String(reason.detail || '').trim() : '';
+	if (!category || (category === 'Other' && !detail)) return null;
+	return { category, detail };
+}
+
+function isValidValidationItem(item) {
+	if (!item.questionKey || !['valid', 'invalid'].includes(item.status)) return false;
+	if (item.status === 'invalid' && !normalizeInvalidReason(item.status, item.invalidReason)) return false;
+	return true;
+}
+
 function rowsToStore(rows) {
 	const store = { files: {} };
 	for (const row of rows) {
-		store.files[row.file_name] = store.files[row.file_name] || { questions: {} };
-		store.files[row.file_name].questions[row.question_key] = {
+		const item = {
 			question: row.question,
 			status: row.status,
 			updatedAt: toIso(row.updated_at)
 		};
+		if (row.status === 'invalid' && row.invalid_reason_category) {
+			item.invalidReason = {
+				category: row.invalid_reason_category,
+				detail: row.invalid_reason_detail || ''
+			};
+		}
+		store.files[row.file_name] = store.files[row.file_name] || { questions: {} };
+		store.files[row.file_name].questions[row.question_key] = item;
 	}
 	return store;
 }
@@ -64,7 +90,7 @@ function rowsToStore(rows) {
 async function readDbStore() {
 	await ensureSchema();
 	const result = await getPool().query(
-		'SELECT file_name, question_key, question, status, updated_at FROM question_validations ORDER BY file_name, question_key'
+		'SELECT file_name, question_key, question, status, invalid_reason_category, invalid_reason_detail, updated_at FROM question_validations ORDER BY file_name, question_key'
 	);
 	return rowsToStore(result.rows);
 }
@@ -72,62 +98,79 @@ async function readDbStore() {
 async function readDbFileStore(fileName) {
 	await ensureSchema();
 	const result = await getPool().query(
-		'SELECT file_name, question_key, question, status, updated_at FROM question_validations WHERE file_name = $1 ORDER BY question_key',
+		'SELECT file_name, question_key, question, status, invalid_reason_category, invalid_reason_detail, updated_at FROM question_validations WHERE file_name = $1 ORDER BY question_key',
 		[fileName]
 	);
 	return rowsToStore(result.rows).files[fileName] || { questions: {} };
 }
 
 async function upsertDbValidation(client, fileName, item) {
+	const invalidReason = normalizeInvalidReason(item.status, item.invalidReason);
 	const result = await client.query(
 		`
-			INSERT INTO question_validations (file_name, question_key, question, status, updated_at)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO question_validations (file_name, question_key, question, status, invalid_reason_category, invalid_reason_detail, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (file_name, question_key)
 			DO UPDATE SET
 				question = EXCLUDED.question,
 				status = EXCLUDED.status,
+				invalid_reason_category = EXCLUDED.invalid_reason_category,
+				invalid_reason_detail = EXCLUDED.invalid_reason_detail,
 				updated_at = EXCLUDED.updated_at
-			RETURNING question, status, updated_at
+			RETURNING question, status, invalid_reason_category, invalid_reason_detail, updated_at
 		`,
 		[
 			fileName,
 			item.questionKey,
 			item.question || item.questionKey,
 			item.status,
+			invalidReason?.category || null,
+			invalidReason?.detail || null,
 			item.updatedAt || new Date().toISOString()
 		]
 	);
 	const row = result.rows[0];
-	return {
+	const saved = {
 		question: row.question,
 		status: row.status,
 		updatedAt: toIso(row.updated_at)
 	};
+	if (row.status === 'invalid' && row.invalid_reason_category) {
+		saved.invalidReason = {
+			category: row.invalid_reason_category,
+			detail: row.invalid_reason_detail || ''
+		};
+	}
+	return saved;
 }
 
 async function upsertDbValidations(client, fileName, validations) {
 	if (validations.length === 0) return;
 	const values = [];
 	const placeholders = validations.map((item, index) => {
-		const offset = index * 5;
+		const invalidReason = normalizeInvalidReason(item.status, item.invalidReason);
+		const offset = index * 7;
 		values.push(
 			fileName,
 			item.questionKey,
 			item.question || item.questionKey,
 			item.status,
+			invalidReason?.category || null,
+			invalidReason?.detail || null,
 			item.updatedAt || new Date().toISOString()
 		);
-		return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
+		return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
 	});
 	await client.query(
 		`
-			INSERT INTO question_validations (file_name, question_key, question, status, updated_at)
+			INSERT INTO question_validations (file_name, question_key, question, status, invalid_reason_category, invalid_reason_detail, updated_at)
 			VALUES ${placeholders.join(', ')}
 			ON CONFLICT (file_name, question_key)
 			DO UPDATE SET
 				question = EXCLUDED.question,
 				status = EXCLUDED.status,
+				invalid_reason_category = EXCLUDED.invalid_reason_category,
+				invalid_reason_detail = EXCLUDED.invalid_reason_detail,
 				updated_at = EXCLUDED.updated_at
 		`,
 		values
@@ -173,7 +216,7 @@ export async function GET() {
 }
 
 export async function POST({ request }) {
-	const { fileName, questionKey, question, status, validations } = await request.json();
+	const { fileName, questionKey, question, status, invalidReason, validations } = await request.json();
 	if (!fileName) {
 		return json({ error: 'CSV filename is required' }, { status: 400 });
 	}
@@ -185,7 +228,7 @@ export async function POST({ request }) {
 			try {
 				await client.query('BEGIN');
 				for (const item of validations) {
-					if (!item.questionKey || !['valid', 'invalid'].includes(item.status)) {
+					if (!isValidValidationItem(item)) {
 						await client.query('ROLLBACK');
 						return json({ error: 'Invalid validation payload' }, { status: 400 });
 					}
@@ -206,20 +249,23 @@ export async function POST({ request }) {
 		const store = await readStore();
 		store.files[fileName] = store.files[fileName] || { questions: {} };
 		for (const item of validations) {
-			if (!item.questionKey || !['valid', 'invalid'].includes(item.status)) {
+			if (!isValidValidationItem(item)) {
 				return json({ error: 'Invalid validation payload' }, { status: 400 });
 			}
-			store.files[fileName].questions[item.questionKey] = {
+			const saved = {
 				question: item.question || item.questionKey,
 				status: item.status,
 				updatedAt: item.updatedAt || new Date().toISOString()
 			};
+			const normalizedReason = normalizeInvalidReason(item.status, item.invalidReason);
+			if (normalizedReason) saved.invalidReason = normalizedReason;
+			store.files[fileName].questions[item.questionKey] = saved;
 		}
 		await writeStore(store);
 		return json(store.files[fileName]);
 	}
 
-	if (!questionKey || !['valid', 'invalid'].includes(status)) {
+	if (!isValidValidationItem({ questionKey, status, invalidReason })) {
 		return json({ error: 'Invalid validation payload' }, { status: 400 });
 	}
 
@@ -227,7 +273,7 @@ export async function POST({ request }) {
 		await ensureSchema();
 		const client = await getPool().connect();
 		try {
-			return json(await upsertDbValidation(client, fileName, { questionKey, question, status }));
+			return json(await upsertDbValidation(client, fileName, { questionKey, question, status, invalidReason }));
 		} finally {
 			client.release();
 		}
@@ -235,12 +281,15 @@ export async function POST({ request }) {
 
 	const store = await readStore();
 	store.files[fileName] = store.files[fileName] || { questions: {} };
-	store.files[fileName].questions[questionKey] = {
+	const saved = {
 		question: question || questionKey,
 		status,
 		updatedAt: new Date().toISOString()
 	};
+	const normalizedReason = normalizeInvalidReason(status, invalidReason);
+	if (normalizedReason) saved.invalidReason = normalizedReason;
+	store.files[fileName].questions[questionKey] = saved;
 	await writeStore(store);
 
-	return json(store.files[fileName].questions[questionKey]);
+	return json(saved);
 }

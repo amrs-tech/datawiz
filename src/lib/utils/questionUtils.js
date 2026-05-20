@@ -12,6 +12,23 @@ export function getQuestionKey(row, mapping) {
 	return JSON.stringify(row || {});
 }
 
+function isMetadataJsonValue(value) {
+	const str = String(value ?? '').trim();
+	if (!str.startsWith('{')) return false;
+	try {
+		const parsed = JSON.parse(str);
+		if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return false;
+		return Object.values(parsed).some(
+			(item) =>
+				item &&
+				typeof item === 'object' &&
+				('score' in item || 'reason' in item || 'rationale' in item || 'explanation' in item)
+		);
+	} catch {
+		return /"?(score|reason|rationale|explanation)"?\s*:/.test(str);
+	}
+}
+
 export function gatherChoices(row, mapping) {
 	const cols = mapping?.choices || [];
 	const items = [];
@@ -19,6 +36,7 @@ export function gatherChoices(row, mapping) {
 		const raw = row?.[col];
 		if (!raw) continue;
 		const str = String(raw).trim();
+		if (isMetadataJsonValue(str)) continue;
 		if (str.startsWith('[')) {
 			try {
 				items.push(...JSON.parse(str.replace(/'/g, '"')));
@@ -48,6 +66,37 @@ export function gatherChoices(row, mapping) {
 			seen.add(key);
 			return true;
 		});
+}
+
+function normalizeComparable(value) {
+	return normalizeText(value).toLowerCase().replace(/\s+/g, ' ');
+}
+
+function answerTokens(answer) {
+	return normalizeText(answer)
+		.replace(/\band\b/gi, ',')
+		.split(/[;,|/]+/)
+		.map((token) => normalizeComparable(token))
+		.filter(Boolean);
+}
+
+export function isCorrectChoice(choice, answer, index = -1, choices = []) {
+	const choiceKey = normalizeComparable(choice);
+	const answerKey = normalizeComparable(answer);
+	if (!choiceKey || !answerKey) return false;
+
+	const choiceKeys = choices.map((item) => normalizeComparable(item)).filter(Boolean);
+	if (choiceKeys.includes(answerKey)) return choiceKey === answerKey;
+	if (choiceKey === answerKey) return true;
+
+	const labels = [];
+	if (index >= 0) {
+		labels.push(String.fromCharCode(97 + index));
+		labels.push(String(index + 1));
+	}
+
+	const tokens = answerTokens(answer);
+	return labels.some((label) => tokens.includes(label)) || tokens.includes(choiceKey);
 }
 
 export function uniqueValues(values) {

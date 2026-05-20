@@ -15,6 +15,10 @@
 	let rowsPerPage = $state(100);
 	let currentPage = $state(1);
 	let validationState = $state({});
+	let invalidReasonRow = $state(null);
+	let invalidReasonCategory = $state('Equation');
+	let invalidReasonText = $state('');
+	let invalidReasonError = $state('');
 	let defaultPersistToken = 0;
 	const pageSizeOptions = [50, 100, 250, 500];
 
@@ -181,36 +185,84 @@
 		URL.revokeObjectURL(url);
 	}
 
+	function normalizeInvalidReason(category, detail = '') {
+		return {
+			category,
+			detail: category === 'Other' ? String(detail || '').trim() : ''
+		};
+	}
+
+	function openInvalidReasonModal(row) {
+		const questionKey = getQuestionKey(row, safeMapping);
+		const savedReason = validationState[questionKey]?.invalidReason;
+		invalidReasonRow = row;
+		invalidReasonCategory = savedReason?.category || 'Equation';
+		invalidReasonText = savedReason?.category === 'Other' ? savedReason.detail || '' : '';
+		invalidReasonError = '';
+	}
+
+	function closeInvalidReasonModal() {
+		invalidReasonRow = null;
+		invalidReasonCategory = 'Equation';
+		invalidReasonText = '';
+		invalidReasonError = '';
+	}
+
+	async function submitInvalidReason() {
+		if (!invalidReasonRow) return;
+		if (invalidReasonCategory === 'Other' && !invalidReasonText.trim()) {
+			invalidReasonError = 'Please specify the reason.';
+			return;
+		}
+		const reason = normalizeInvalidReason(invalidReasonCategory, invalidReasonText);
+		const saved = await saveValidation(invalidReasonRow, 'invalid', reason);
+		if (saved) closeInvalidReasonModal();
+	}
+
 	async function handleSetValidation(row, status) {
+		if (status === 'invalid') {
+			openInvalidReasonModal(row);
+			return;
+		}
+		await saveValidation(row, status, null);
+	}
+
+	async function saveValidation(row, status, invalidReason) {
 		const questionKey = getQuestionKey(row, safeMapping);
 		const question = getQuestionText(row, safeMapping);
 		const previous = validationState;
+		const nextItem = {
+			question: question || questionKey,
+			status,
+			updatedAt: new Date().toISOString()
+		};
+		if (status === 'invalid' && invalidReason) {
+			nextItem.invalidReason = invalidReason;
+		}
 		validationState = {
 			...validationState,
-			[questionKey]: {
-				question: question || questionKey,
-				status,
-				updatedAt: new Date().toISOString()
-			}
+			[questionKey]: nextItem
 		};
 
 		try {
 			const response = await fetch('/api/question-validations', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ fileName, questionKey, question, status })
+				body: JSON.stringify({ fileName, questionKey, question, status, invalidReason })
 			});
 			if (!response.ok) {
 				validationState = previous;
-				return;
+				return false;
 			}
 			const saved = await response.json();
 			validationState = {
 				...validationState,
 				[questionKey]: saved
 			};
+			return true;
 		} catch {
 			validationState = previous;
+			return false;
 		}
 	}
 </script>
@@ -422,6 +474,86 @@
 					</button>
 				</div>
 				<img src={previewImage.url} alt={previewImage.id} class="w-full h-auto max-h-[78vh] object-contain rounded-xl" />
+			</div>
+		</div>
+	{/if}
+
+	{#if invalidReasonRow}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="fixed inset-0 z-[130] flex items-center justify-center p-4"
+			onclick={closeInvalidReasonModal}
+			onkeydown={(e) => { if (e.key === 'Escape') closeInvalidReasonModal(); }}
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1">
+			<div class="absolute inset-0" style="background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);"></div>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="relative w-full max-w-md glass rounded-2xl p-5"
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}>
+				<div class="flex items-start justify-between gap-4 mb-4">
+					<div>
+						<h2 class="text-base font-bold" style="color: var(--text-primary);">Reason for invalid</h2>
+						<p class="text-xs mt-1" style="color: var(--text-muted);">Select why this question is invalid.</p>
+					</div>
+					<button
+						onclick={closeInvalidReasonModal}
+						class="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
+						style="border: 1px solid var(--border-color); color: var(--text-muted);"
+						aria-label="Close invalid reason form"
+					>
+						<X size={14} />
+					</button>
+				</div>
+
+				<div class="space-y-3">
+					<label class="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer"
+						style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary);">
+						<input type="radio" bind:group={invalidReasonCategory} value="Equation" />
+						<span class="text-sm font-medium">Equation</span>
+					</label>
+					<label class="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer"
+						style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary);">
+						<input type="radio" bind:group={invalidReasonCategory} value="Image" />
+						<span class="text-sm font-medium">Image</span>
+					</label>
+					<label class="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer"
+						style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary);">
+						<input type="radio" bind:group={invalidReasonCategory} value="Other" />
+						<span class="text-sm font-medium">Other</span>
+					</label>
+
+					{#if invalidReasonCategory === 'Other'}
+						<input
+							bind:value={invalidReasonText}
+							type="text"
+							placeholder="Please specify"
+							class="w-full px-3 py-2.5 rounded-xl outline-none text-sm"
+							style="background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);"
+						/>
+					{/if}
+
+					{#if invalidReasonError}
+						<p class="text-xs text-red-400">{invalidReasonError}</p>
+					{/if}
+				</div>
+
+				<div class="grid grid-cols-2 gap-3 mt-5">
+					<button
+						onclick={closeInvalidReasonModal}
+						class="px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+						style="background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-color);"
+					>
+						Cancel
+					</button>
+					<button
+						onclick={submitInvalidReason}
+						class="px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+						style="background: rgba(239, 68, 68, 0.18); color: rgb(248, 113, 113); border: 1px solid rgba(239, 68, 68, 0.35);"
+					>
+						Save Invalid
+					</button>
+				</div>
 			</div>
 		</div>
 	{/if}

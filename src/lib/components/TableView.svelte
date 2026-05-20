@@ -1,6 +1,7 @@
 <script>
 	import { CheckCircle, Image as ImageIcon } from 'lucide-svelte';
 	import { uniqueValues } from '$lib/utils/questionUtils.js';
+	import LatexText from './LatexText.svelte';
 
 	let { data, mapping, imageMap = {}, onOpenImage, onSelectRow } = $props();
 
@@ -100,7 +101,7 @@
 									{/each}
 								</div>
 							{:else}
-								<span class="line-clamp-2">{row[col] || ''}</span>
+								<LatexText value={row[col] || ''} class="line-clamp-2" />
 							{/if}
 						</td>
 					{/each}
